@@ -8,9 +8,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
+	"time"
 )
+
+const namespace = "test_app"
 
 type responseWriter struct {
 	http.ResponseWriter
@@ -28,24 +32,27 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 var totalRequests = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "http_requests_total",
-		Help: "Number of get requests.",
+		Namespace: namespace,
+		Name:      "http_requests_total",
+		Help:      "Number of get requests.",
 	},
 	[]string{"path"},
 )
 
 var responseStatus = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "response_status",
-		Help: "Status of HTTP response",
+		Namespace: namespace,
+		Name:      "response_status",
+		Help:      "Status of HTTP response",
 	},
 	[]string{"status"},
 )
 
 var httpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name: "http_response_time_seconds",
-	Help: "Duration of HTTP requests.",
-}, []string{"duration"})
+	Namespace: namespace,
+	Name:      "http_response_time_seconds",
+	Help:      "Duration of HTTP requests.",
+}, []string{"path"})
 
 func prometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,8 +67,8 @@ func prometheusMiddleware(next http.Handler) http.Handler {
 		responseStatus.WithLabelValues(strconv.Itoa(statusCode)).Inc()
 		totalRequests.WithLabelValues(path.Path).Inc()
 
-		timer.ObserveDuration()
-		log.Println("response time", timer.ObserveDuration())
+		t := timer.ObserveDuration()
+		log.Println("response time:", t)
 
 	})
 }
@@ -83,7 +90,7 @@ func main() {
 	router := mux.NewRouter()
 	router.Use(prometheusMiddleware)
 
-	router.HandleFunc("/getmetrics", GetInfo).Methods("GET")
+	router.HandleFunc("/getinfo", GetInfo).Methods("GET")
 	router.Handle("/metrics", promhttp.Handler())
 
 	fmt.Println("Serving requests on port 9000")
@@ -93,8 +100,11 @@ func main() {
 
 func GetInfo(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	t := rand.Intn(100)
+	time.Sleep(time.Duration(t) * time.Millisecond)
 	err := json.NewEncoder(w).Encode("calling test api")
 	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = fmt.Fprintln(w, err.Error())
 	}
 }
