@@ -48,17 +48,34 @@ var responseStatus = prometheus.NewCounterVec(
 	[]string{"status"},
 )
 
+var httpRequestsGauge = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "gauge_http_requests_total",
+		Help:      "Total number of requests",
+	},
+	[]string{"path"},
+)
+
 var httpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Namespace: namespace,
 	Name:      "http_response_time_seconds",
 	Help:      "Duration of HTTP requests.",
 }, []string{"path"})
 
+var summary = promauto.NewSummaryVec(
+	prometheus.SummaryOpts{
+		Namespace: namespace,
+		Name:      "my_summary",
+		Help:      "This is my summary",
+	}, []string{"path"})
+
 func prometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL
 		log.Println("requested path", path)
 		timer := prometheus.NewTimer(httpDuration.WithLabelValues(path.Path))
+		summaryTimer := prometheus.NewTimer(summary.WithLabelValues(path.Path))
 		rw := NewResponseWriter(w)
 		next.ServeHTTP(rw, r)
 
@@ -66,8 +83,10 @@ func prometheusMiddleware(next http.Handler) http.Handler {
 
 		responseStatus.WithLabelValues(strconv.Itoa(statusCode)).Inc()
 		totalRequests.WithLabelValues(path.Path).Inc()
+		httpRequestsGauge.WithLabelValues(path.Path).Inc()
 
 		t := timer.ObserveDuration()
+		summaryTimer.ObserveDuration()
 		log.Println("response time:", t)
 
 	})
